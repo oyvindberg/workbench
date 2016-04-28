@@ -1,25 +1,26 @@
 package com.lihaoyi.workbench
-import upickle._
+
 import org.scalajs.dom
 import org.scalajs.dom.ext._
-import upickle.{Reader, Writer, Js}
+import upickle.Js
+import upickle.default.{Reader, Writer, readJs}
 import scala.scalajs.js
 import scala.scalajs.js.annotation.JSExport
-import scalajs.concurrent.JSExecutionContext.Implicits.runNow
+import scalajs.concurrent.JSExecutionContext.Implicits.queue
 import org.scalajs.dom.raw._
 
 /**
  * The connection from workbench server to the client
  */
-object Wire extends autowire.Server[Js.Value, upickle.Reader, upickle.Writer] with ReadWrite{
+object Wire extends autowire.Server[Js.Value, Reader, Writer] with ReadWrite {
   def wire(parsed: Js.Arr): Unit = {
     val Js.Arr(path, args: Js.Obj) = parsed
-    val req = new Request(upickle.readJs[Seq[String]](path), args.value.toMap)
+    val req = new Request(readJs[Seq[String]](path), args.value.toMap)
     Wire.route[Api](WorkbenchClient).apply(req)
   }
 }
 @JSExport
-object WorkbenchClient extends Api{
+object WorkbenchClient extends Api {
   @JSExport
   lazy val shadowBody = dom.document.body.cloneNode(deep = true)
 
@@ -35,7 +36,7 @@ object WorkbenchClient extends Api{
           if (!success) println("Workbench connected")
           success = true
           interval = 1000
-          json.read(data.responseText)
+          upickle.json.read(data.responseText)
             .asInstanceOf[Js.Arr]
             .value
             .foreach(v => Wire.wire(v.asInstanceOf[Js.Arr]))
@@ -44,7 +45,7 @@ object WorkbenchClient extends Api{
           if (success) println("Workbench disconnected " + e)
           success = false
           interval = math.min(interval * 2, 30000)
-          dom.setTimeout(() => rec(), interval)
+          dom.window.setTimeout(() => rec(), interval)
       }
     }
 
@@ -59,14 +60,14 @@ object WorkbenchClient extends Api{
   override def clear(): Unit = {
     dom.document.asInstanceOf[js.Dynamic].body = shadowBody.cloneNode(true)
     for(i <- 0 until 100000){
-      dom.clearTimeout(i)
-      dom.clearInterval(i)
+      dom.window.clearTimeout(i)
+      dom.window.clearInterval(i)
     }
   }
   @JSExport
   override def reload(): Unit = {
     dom.console.log("Reloading page...")
-    dom.location.reload()
+    dom.window.location.reload()
   }
   @JSExport
   override def run(path: String, bootSnippet: Option[String]): Unit = {
