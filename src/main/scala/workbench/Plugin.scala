@@ -1,15 +1,12 @@
 package com.lihaoyi.workbench
-import scala.concurrent.ExecutionContext.Implicits.global
-import sbt._
-import sbt.Keys._
-import autowire._
-import org.scalajs.sbtplugin.ScalaJSPlugin.AutoImport
-import org.scalajs.core.tools.io._
-import org.scalajs.core.tools.optimizer.ScalaJSOptimizer
-import org.scalajs.sbtplugin.ScalaJSPluginInternal._
-import org.scalajs.sbtplugin.Implicits._
 
-import AutoImport._
+import autowire._
+import org.scalajs.core.tools.io._
+import sbt.Keys._
+import sbt._
+import org.scalajs.sbtplugin.ScalaJSPlugin.AutoImport._
+import scala.concurrent.ExecutionContext.Implicits.global
+
 object Plugin extends sbt.Plugin {
 
   val refreshBrowsers = taskKey[Unit]("Sends a message to all connected web pages asking them to refresh the page")
@@ -17,7 +14,6 @@ object Plugin extends sbt.Plugin {
   val spliceBrowsers = taskKey[Unit]("Attempts to do a live update of the code running in the browser while maintaining state")
   val localUrl = settingKey[(String, Int)]("localUrl")
   private[this] val server = settingKey[Server]("local websocket server")
-
 
   val bootSnippet = settingKey[String]("piece of javascript to make things happen")
   val updatedJS = taskKey[List[String]]("Provides the addresses of the JS files that have changed")
@@ -109,8 +105,8 @@ object Plugin extends sbt.Plugin {
       f
     },
     sources in Compile += replFile.value,
+
     sjs <<= Def.inputTaskDyn {
-      import sbt.complete.Parsers._
       val str = sbt.complete.Parsers.any.*.parsed.mkString
       val newSnippet = s"""
           @scalajs.js.annotation.JSExport object O${replHistory.length}{
@@ -134,21 +130,19 @@ object Plugin extends sbt.Plugin {
             Some(output.getParentFile.toURI())
           else None
 
-        import ScalaJSOptimizer._
-
-        (scalaJSOptimizer in fastOptJS).value.optimizeCP(
-          (scalaJSPreLinkClasspath in fastOptJS).value,
-          Config(
-            output = WritableFileVirtualJSFile(output),
-            cache = None,
-            wantSourceMap = (emitSourceMaps in fastOptJS).value,
-            relativizeSourceMapBase = relSourceMapBase,
-            checkIR = (scalaJSOptimizerOptions in fastOptJS).value.checkScalaJSIR,
-            disableOptimizer = (scalaJSOptimizerOptions in fastOptJS).value.disableOptimizer,
-            batchMode = (scalaJSOptimizerOptions in fastOptJS).value.batchMode
-            ),
-          s.log
-        )
+//        (scalaJSOptimizer in fastOptJS).value.optimizeCP(
+//          (scalaJSPreLinkClasspath in fastOptJS).value,
+//          Config(
+//            output = WritableFileVirtualJSFile(output),
+//            cache = None,
+//            wantSourceMap = (emitSourceMaps in fastOptJS).value,
+//            relativizeSourceMapBase = relSourceMapBase,
+//            checkIR = (scalaJSOptimizerOptions in fastOptJS).value.checkScalaJSIR,
+//            disableOptimizer = (scalaJSOptimizerOptions in fastOptJS).value.disableOptimizer,
+//            batchMode = (scalaJSOptimizerOptions in fastOptJS).value.batchMode
+//            ),
+//          s.log
+//        )
         // end of C&P
         val outPath = sbt.IO.relativize(
           baseDirectory.value,

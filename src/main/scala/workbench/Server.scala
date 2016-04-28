@@ -1,33 +1,20 @@
 package com.lihaoyi.workbench
 
-import akka.actor.{ActorRef, Actor, ActorSystem}
-import akka.util.ByteString
-import com.typesafe.config.ConfigFactory
-import sbt.{Logger, IO}
-import spray.httpx.encoding.Gzip
-import spray.routing.SimpleRoutingApp
 import akka.actor.ActorDSL._
+import akka.actor.{Actor, ActorRef, ActorSystem}
+import com.typesafe.config.ConfigFactory
+import sbt.IO
+import spray.http.HttpHeaders._
+import spray.http.{AllOrigins, HttpResponse}
+import spray.routing.{RequestContext, SimpleRoutingApp}
+import upickle.Js
+import upickle.default.{Reader, Writer, write, writeJs}
 
-import upickle.{Reader, Writer, Js}
-import spray.http.{HttpEntity, AllOrigins, HttpResponse}
-import spray.http.HttpHeaders.`Access-Control-Allow-Origin`
-import concurrent.duration._
 import scala.concurrent.Future
-import scala.io.Source
-import org.scalajs.core.tools.optimizer.{ScalaJSClosureOptimizer, ScalaJSOptimizer}
-import org.scalajs.core.tools.io._
-import org.scalajs.core.tools.logging.Level
-import scala.tools.nsc
-import scala.tools.nsc.Settings
+import scala.concurrent.duration._
 
-import scala.tools.nsc.backend.JavaPlatform
-import scala.tools.nsc.util.ClassPath.JavaContext
-import scala.collection.mutable
-import scala.tools.nsc.typechecker.Analyzer
-import org.scalajs.core.tools.classpath.{CompleteClasspath, PartialClasspath}
-import scala.tools.nsc.util.{JavaClassPath, DirectoryClassPath}
+class Server(url: String, port: Int, bootSnippet: String) extends SimpleRoutingApp {
 
-class Server(url: String, port: Int, bootSnippet: String) extends SimpleRoutingApp{
   implicit val system = ActorSystem(
     "Workbench-System",
     config = ConfigFactory.load(ActorSystem.getClass.getClassLoader),
@@ -37,9 +24,9 @@ class Server(url: String, port: Int, bootSnippet: String) extends SimpleRoutingA
   /**
    * The connection from workbench server to the client
    */
-  object Wire extends autowire.Client[Js.Value, upickle.Reader, upickle.Writer] with ReadWrite{
+  object Wire extends autowire.Client[Js.Value, Reader, Writer] with ReadWrite{
     def doCall(req: Request): Future[Js.Value] = {
-      longPoll ! Js.Arr(upickle.writeJs(req.path), Js.Obj(req.args.toSeq:_*))
+      longPoll ! Js.Arr(writeJs(req.path), Js.Obj(req.args.toSeq:_*))
       Future.successful(Js.Null)
     }
   }
@@ -65,26 +52,30 @@ class Server(url: String, port: Int, bootSnippet: String) extends SimpleRoutingA
         headers = List(`Access-Control-Allow-Origin`(AllOrigins))
       )
     }
-    def receive = (x: Any) => (x, waitingActor, queuedMessages) match {
-      case (a: ActorRef, _, Nil) =>
-        // Even if there's someone already waiting,
-        // a new actor waiting replaces the old one
-        waitingActor = Some(a)
 
-      case (a: ActorRef, None, msgs) =>
-        respond(a, upickle.json.write(Js.Arr(msgs:_*)))
-        queuedMessages = Nil
+    def receive: PartialFunction[Any, Unit] = {
+      case (x: Any) ⇒
+        (x, waitingActor, queuedMessages) match {
+          case (a: ActorRef, _, Nil) =>
+            // Even if there's someone already waiting,
+            // a new actor waiting replaces the old one
+            waitingActor = Some(a)
 
-      case (msg: Js.Arr, None, msgs) =>
-        queuedMessages = msg :: msgs
+          case (a: ActorRef, None, msgs) =>
+            respond(a, upickle.json.write(Js.Arr(msgs:_*)))
+            queuedMessages = Nil
 
-      case (msg: Js.Arr, Some(a), Nil) =>
-        respond(a, upickle.json.write(Js.Arr(msg)))
-        waitingActor = None
+          case (msg: Js.Arr, None, msgs) =>
+            queuedMessages = msg :: msgs
 
-      case (Clear, waiting, Nil) =>
-        waiting.foreach(respond(_, upickle.json.write(Js.Arr())))
-        waitingActor = None
+          case (msg: Js.Arr, Some(a), Nil) =>
+            respond(a, upickle.json.write(Js.Arr(msg)))
+            waitingActor = None
+
+          case (Clear, waitingOpt, Nil) =>
+            waitingOpt.foreach(respond(_, upickle.json.write(Js.Arr())))
+            waitingActor = None
+        }
     }
   })
 
@@ -106,7 +97,7 @@ class Server(url: String, port: Int, bootSnippet: String) extends SimpleRoutingA
           (function(){
             $body
 
-            com.lihaoyi.workbench.WorkbenchClient().main(${upickle.write(bootSnippet)}, ${upickle.write(url)}, ${upickle.write(port)})
+            com.lihaoyi.workbench.WorkbenchClient().main(${write(bootSnippet)}, ${write(url)}, ${write(port)})
           }).call(this)
           """
         }
@@ -115,11 +106,11 @@ class Server(url: String, port: Int, bootSnippet: String) extends SimpleRoutingA
 
     } ~
     post {
-      path("notifications") { ctx =>
-        longPoll ! ctx.responder
-      }
+      path("notifications")((ctx: RequestContext) =>
+          longPoll ! ctx.responder
+      )
     }
   }
-  def kill() = system.shutdown()
 
+  def kill() = system.shutdown()
 }
