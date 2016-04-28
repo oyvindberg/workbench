@@ -5,6 +5,7 @@ import akka.actor.{Actor, ActorRef, ActorSystem}
 import com.typesafe.config.ConfigFactory
 import sbt.IO
 import spray.http.HttpHeaders._
+import spray.http.HttpMethods._
 import spray.http.{AllOrigins, HttpResponse}
 import spray.routing.{RequestContext, SimpleRoutingApp}
 import upickle.Js
@@ -14,6 +15,14 @@ import scala.concurrent.Future
 import scala.concurrent.duration._
 
 class Server(url: String, port: Int, bootSnippet: String) extends SimpleRoutingApp {
+
+  val corsHeaders: List[ModeledHeader] =
+    List(
+      `Access-Control-Allow-Methods`(OPTIONS, GET, POST),
+      `Access-Control-Allow-Origin`(AllOrigins),
+      `Access-Control-Allow-Headers`("Origin, X-Requested-With, Content-Type, Accept, Accept-Encoding, Accept-Language, Host, Referer, User-Agent"),
+      `Access-Control-Max-Age`(1728000)
+    )
 
   implicit val system = ActorSystem(
     "Workbench-System",
@@ -49,7 +58,7 @@ class Server(url: String, port: Int, bootSnippet: String) extends SimpleRoutingA
     def respond(a: ActorRef, s: String) = {
       a ! HttpResponse(
         entity = s,
-        headers = List(`Access-Control-Allow-Origin`(AllOrigins))
+        headers = corsHeaders
       )
     }
 
