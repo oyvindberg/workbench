@@ -89,8 +89,8 @@ class Server(url: String, port: Int, bootSnippet: String) extends SimpleRoutingA
             waitingActors = waitingActors + a
 
           case msg: Js.Arr =>
-            send()
             queuedMessages = msg :: queuedMessages
+            send()
 
           case other =>
             send()
