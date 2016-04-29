@@ -9,7 +9,7 @@ val defaultSettings = Seq(
 
 lazy val root = project.in(file(".")).settings(defaultSettings:_*).settings(
   name := "workbench",
-  version := "0.2.4",
+  version := "0.2.5-SNAPSHOT",
   organization := "com.olvind",
   scalaVersion := "2.10.6",
   sbtPlugin := true,
