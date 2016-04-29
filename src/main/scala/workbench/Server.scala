@@ -9,10 +9,12 @@ import spray.http.HttpMethods._
 import spray.http.{AllOrigins, HttpResponse}
 import spray.routing.{RequestContext, SimpleRoutingApp}
 import upickle.Js
+import upickle.Js.Value
 import upickle.default.{Reader, Writer, write, writeJs}
 
 import scala.concurrent.Future
 import scala.concurrent.duration._
+import scala.util.control.NonFatal
 
 class Server(url: String, port: Int, bootSnippet: String) extends SimpleRoutingApp {
 
@@ -44,8 +46,11 @@ class Server(url: String, port: Int, bootSnippet: String) extends SimpleRoutingA
    * Actor meant to handle long polling, buffering messages or waiting actors
    */
   private val longPoll = actor(new Actor{
-    var waitingActor: Option[ActorRef] = None
-    var queuedMessages = List[Js.Value]()
+    var waitingActors: Set[ActorRef] =
+      Set.empty
+
+    var queuedMessages: List[Value] =
+      Nil
 
     /**
      * Flushes returns nothing to any waiting actor every so often,
@@ -54,36 +59,42 @@ class Server(url: String, port: Int, bootSnippet: String) extends SimpleRoutingA
     case object Clear
     import system.dispatcher
 
-    system.scheduler.schedule(0 seconds, 10 seconds, self, Clear)
-    def respond(a: ActorRef, s: String) = {
-      a ! HttpResponse(
-        entity = s,
-        headers = corsHeaders
-      )
+    system.scheduler.schedule(0.seconds, 10.seconds, self, Clear)
+
+    def send(): Unit = {
+      waitingActors =
+        waitingActors.filter(
+          (a: ActorRef) ⇒
+            try {
+              a ! HttpResponse(
+                entity = upickle.json.write(Js.Arr(queuedMessages: _*)),
+                headers = corsHeaders
+              )
+              true
+            }
+            catch {
+              case NonFatal(th) ⇒ false
+            }
+        )
+
+      queuedMessages = Nil
     }
 
     def receive: PartialFunction[Any, Unit] = {
       case (x: Any) ⇒
-        (x, waitingActor, queuedMessages) match {
-          case (a: ActorRef, _, Nil) =>
+        x match {
+          case a: ActorRef =>
             // Even if there's someone already waiting,
             // a new actor waiting replaces the old one
-            waitingActor = Some(a)
+            waitingActors = waitingActors + a
 
-          case (a: ActorRef, None, msgs) =>
-            respond(a, upickle.json.write(Js.Arr(msgs:_*)))
-            queuedMessages = Nil
+          case msg: Js.Arr =>
+            send()
+            queuedMessages = msg :: queuedMessages
 
-          case (msg: Js.Arr, None, msgs) =>
-            queuedMessages = msg :: msgs
-
-          case (msg: Js.Arr, Some(a), Nil) =>
-            respond(a, upickle.json.write(Js.Arr(msg)))
-            waitingActor = None
-
-          case (Clear, waitingOpt, msgs) =>
-            waitingOpt.foreach(respond(_, upickle.json.write(Js.Arr(msgs :_*))))
-            waitingActor = None
+          case other =>
+            send()
+            ()
       }
     }
   })
@@ -115,11 +126,12 @@ class Server(url: String, port: Int, bootSnippet: String) extends SimpleRoutingA
 
     } ~
     post {
-      path("notifications")((ctx: RequestContext) =>
-          longPoll ! ctx.responder
+      path("notifications")(
+        (ctx: RequestContext) => longPoll ! ctx.responder
       )
     }
   }
 
-  def kill() = system.shutdown()
+  def kill(): Unit =
+    system.shutdown()
 }
